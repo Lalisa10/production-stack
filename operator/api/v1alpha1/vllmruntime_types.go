@@ -178,6 +178,10 @@ type VLLMRuntimeSpec struct {
 
 // VLLMConfig defines the vLLM server configuration
 type VLLMConfig struct {
+	// Command is the command used to start the vLLM server. When omitted,
+	// it defaults to ["/opt/venv/bin/vllm", "serve"].
+	Command []string `json:"command,omitempty"`
+
 	// Enable chunked prefill
 	EnableChunkedPrefill bool `json:"enableChunkedPrefill,omitempty"`
 
@@ -276,6 +280,11 @@ type StorageConfig struct {
 
 	// StorageClassName is the name of the storage class to use
 	StorageClassName string `json:"storageClassName,omitempty"`
+
+	// Selector selects a statically provisioned PersistentVolume. When set with
+	// an empty StorageClassName, the generated PVC explicitly uses no storage class.
+	// PVC selectors are immutable after the claim is created.
+	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 
 	// Size is the size of the persistent volume claim
 	// +kubebuilder:default="10Gi"

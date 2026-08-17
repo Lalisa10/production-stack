@@ -492,6 +492,55 @@ spec:
                     description: MountPath is the path where the volume will be mounted
                       in the container
                     type: string
+                  selector:
+                    description: |-
+                      Selector selects a statically provisioned PersistentVolume. When set with
+                      an empty StorageClassName, the generated PVC explicitly uses no storage class.
+                      PVC selectors are immutable after the claim is created.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
                   size:
                     default: 10Gi
                     description: Size is the size of the persistent volume claim
@@ -509,6 +558,13 @@ spec:
               vllmConfig:
                 description: vLLM server configuration
                 properties:
+                  command:
+                    description: |-
+                      Command is the command used to start the vLLM server. When omitted,
+                      it defaults to ["/opt/venv/bin/vllm", "serve"].
+                    items:
+                      type: string
+                    type: array
                   enableChunkedPrefill:
                     description: Enable chunked prefill
                     type: boolean

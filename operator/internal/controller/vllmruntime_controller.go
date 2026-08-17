@@ -774,12 +774,17 @@ func (r *VLLMRuntimeReconciler) deploymentForVLLMRuntime(
 		}
 	}
 
+	command := vllmRuntime.Spec.VLLMConfig.Command
+	if len(command) == 0 {
+		command = []string{"/opt/venv/bin/vllm", "serve"}
+	}
+
 	containers := []corev1.Container{
 		{
 			Name:            "vllm",
 			Image:           image,
 			ImagePullPolicy: imagePullPolicy,
-			Command:         []string{"/opt/venv/bin/vllm", "serve"},
+			Command:         command,
 			Args:            args,
 			Env:             env,
 			Ports: []corev1.ContainerPort{
@@ -999,6 +1004,14 @@ func (r *VLLMRuntimeReconciler) deploymentNeedsUpdate(
 			"actual",
 			dep.Spec.Template.Spec.Containers[0].Image,
 		)
+		return true
+	}
+
+	// Compare the vLLM container command so command changes trigger a rollout.
+	expectedCommand := expectedDep.Spec.Template.Spec.Containers[0].Command
+	actualCommand := dep.Spec.Template.Spec.Containers[0].Command
+	if !reflect.DeepEqual(expectedCommand, actualCommand) {
+		log.Info("Command mismatch", "expected", expectedCommand, "actual", actualCommand)
 		return true
 	}
 
@@ -1407,9 +1420,17 @@ func (r *VLLMRuntimeReconciler) pvcForVLLMRuntime(
 		},
 	}
 
-	// Add storage class if specified
-	if vllmRuntime.Spec.StorageConfig.StorageClassName != "" {
-		pvc.Spec.StorageClassName = &vllmRuntime.Spec.StorageConfig.StorageClassName
+	if vllmRuntime.Spec.StorageConfig.Selector != nil {
+		pvc.Spec.Selector = vllmRuntime.Spec.StorageConfig.Selector.DeepCopy()
+	}
+
+	// A selector opts into static provisioning. Explicitly setting an empty
+	// storage class prevents the default StorageClass admission plugin from
+	// assigning a class to a claim intended for a classless static PV.
+	if vllmRuntime.Spec.StorageConfig.StorageClassName != "" ||
+		vllmRuntime.Spec.StorageConfig.Selector != nil {
+		storageClassName := vllmRuntime.Spec.StorageConfig.StorageClassName
+		pvc.Spec.StorageClassName = &storageClassName
 	}
 
 	// Set the owner reference

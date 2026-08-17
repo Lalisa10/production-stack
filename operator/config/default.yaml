@@ -93,6 +93,8 @@ spec:
                     type: string
                   gpu:
                     type: string
+                  gpuType:
+                    type: string
                   memory:
                     type: string
                 type: object
@@ -454,6 +456,13 @@ spec:
                 description: K8sLabelSelector specifies the label selector for vLLM
                   runtime pods when using k8s service discovery
                 type: string
+              lmcacheControllerPort:
+                description: |-
+                  LmcacheControllerPort is the port of the LMCache controller (used with kvaware routing).
+                  Set explicitly when routingLogic is "kvaware" (typical value: 9000).
+                format: int32
+                maximum: 65535
+                type: integer
               nodeSelectorTerms:
                 description: NodeSelectorTerms for pod scheduling
                 items:
@@ -552,6 +561,8 @@ spec:
                     type: string
                   gpu:
                     type: string
+                  gpuType:
+                    type: string
                   memory:
                     type: string
                 type: object
@@ -561,6 +572,8 @@ spec:
                 enum:
                 - roundrobin
                 - session
+                - prefixaware
+                - kvaware
                 type: string
               serviceAccountName:
                 description: ServiceAccountName for the router pod
@@ -667,6 +680,118 @@ spec:
           spec:
             description: VLLMRuntimeSpec defines the desired state of VLLMRuntime
             properties:
+              autoscalingConfig:
+                description: Autoscaling configuration
+                properties:
+                  enabled:
+                    description: Enabled enables autoscaling
+                    type: boolean
+                  maxReplicas:
+                    description: MaxReplicas is the maximum number of replicas
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  minReplicas:
+                    default: 1
+                    description: MinReplicas is the minimum number of replicas (defaults
+                      to 1, set to 0 to enable scale-to-zero)
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  pollingInterval:
+                    default: 15
+                    description: PollingInterval is how often KEDA checks metrics
+                      (seconds)
+                    format: int32
+                    type: integer
+                  scaleDownPolicy:
+                    description: ScaleDownPolicy defines the scaling behavior when
+                      scaling down
+                    properties:
+                      periodSeconds:
+                        default: 60
+                        description: PeriodSeconds is the period for the scale down
+                          policy
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      podValue:
+                        default: 1
+                        description: PodValue is the max pods to remove per period
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      scaleToZeroDelaySeconds:
+                        default: 1800
+                        description: |-
+                          ScaleToZeroDelaySeconds is the wait time before scaling to zero (seconds).
+                          Only applicable when minReplicas is set to 0.
+                        format: int32
+                        type: integer
+                      stabilizationWindowSeconds:
+                        default: 300
+                        description: StabilizationWindowSeconds is the HPA stabilization
+                          window for scaling down
+                        format: int32
+                        type: integer
+                    type: object
+                  scaleUpPolicy:
+                    description: ScaleUpPolicy defines the scaling behavior when scaling
+                      up
+                    properties:
+                      periodSeconds:
+                        default: 60
+                        description: PeriodSeconds is the period for the scale up
+                          policy
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      podValue:
+                        default: 1
+                        description: PodValue is the max pods to add per period
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      stabilizationWindowSeconds:
+                        default: 0
+                        description: StabilizationWindowSeconds is the HPA stabilization
+                          window for scaling up
+                        format: int32
+                        type: integer
+                    type: object
+                  triggers:
+                    description: Triggers defines the metric thresholds for autoscaling
+                    properties:
+                      generationTokensThreshold:
+                        default: 100
+                        description: GenerationTokensThreshold is the per-pod generation
+                          tokens/s threshold for scaling
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      prometheusAddress:
+                        default: http://kube-prom-stack-kube-prome-prometheus.monitoring.svc:9090
+                        description: PrometheusAddress is the Prometheus server address
+                          for metric queries
+                        type: string
+                      promptTokensThreshold:
+                        default: 100
+                        description: PromptTokensThreshold is the per-pod prompt tokens/s
+                          threshold for scaling
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      requestsRunningThreshold:
+                        default: 5
+                        description: RequestsRunningThreshold is the per-pod concurrent
+                          requests threshold for scaling
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    type: object
+                required:
+                - maxReplicas
+                type: object
               deploymentConfig:
                 description: Deployment configuration
                 properties:
@@ -692,6 +817,90 @@ spec:
                     - name
                     - registry
                     type: object
+                  nodeSelectorTerms:
+                    description: Node selector
+                    items:
+                      description: |-
+                        A null or empty node selector term matches no objects. The requirements of
+                        them are ANDed.
+                        The TopologySelectorTerm type implements a subset of the NodeSelectorTerm.
+                      properties:
+                        matchExpressions:
+                          description: A list of node selector requirements by node's
+                            labels.
+                          items:
+                            description: |-
+                              A node selector requirement is a selector that contains values, a key, and an operator
+                              that relates the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies
+                                  to.
+                                type: string
+                              operator:
+                                description: |-
+                                  Represents a key's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: |-
+                                  An array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty. If the operator is Gt or Lt, the values
+                                  array must have a single element, which will be interpreted as an integer.
+                                  This array is replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        matchFields:
+                          description: A list of node selector requirements by node's
+                            fields.
+                          items:
+                            description: |-
+                              A node selector requirement is a selector that contains values, a key, and an operator
+                              that relates the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies
+                                  to.
+                                type: string
+                              operator:
+                                description: |-
+                                  Represents a key's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: |-
+                                  An array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty. If the operator is Gt or Lt, the values
+                                  array must have a single element, which will be interpreted as an integer.
+                                  This array is replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    type: array
+                  podAnnotations:
+                    additionalProperties:
+                      type: string
+                    description: Pod annotations
+                    type: object
                   replicas:
                     default: 1
                     description: Replicas
@@ -704,9 +913,22 @@ spec:
                         type: string
                       gpu:
                         type: string
+                      gpuType:
+                        type: string
                       memory:
                         type: string
                     type: object
+                  runtimeClass:
+                    default: nvidia
+                    description: RuntimeClass
+                    type: string
+                  shmSize:
+                    description: |-
+                      ShmSize, when set, mounts an emptyDir with medium=Memory at /dev/shm
+                      sized to this value (e.g. "24Gi"). Tensor parallelism uses shared
+                      memory for inter-process communication and the container default
+                      /dev/shm (typically 64Mi) is too small. Accepts any Kubernetes quantity.
+                    type: string
                   sidecarConfig:
                     description: Sidecar configuration
                     properties:
@@ -769,12 +991,53 @@ spec:
                             type: string
                           gpu:
                             type: string
+                          gpuType:
+                            type: string
                           memory:
                             type: string
                         type: object
                     required:
                     - image
                     type: object
+                  toleration:
+                    description: Toleration
+                    items:
+                      description: |-
+                        The pod this Toleration is attached to tolerates any taint that matches
+                        the triple <key,value,effect> using the matching operator <operator>.
+                      properties:
+                        effect:
+                          description: |-
+                            Effect indicates the taint effect to match. Empty means match all taint effects.
+                            When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: |-
+                            Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                            If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                          type: string
+                        operator:
+                          description: |-
+                            Operator represents a key's relationship to the value.
+                            Valid operators are Exists and Equal. Defaults to Equal.
+                            Exists is equivalent to wildcard for value, so that a pod can
+                            tolerate all taints of a particular category.
+                          type: string
+                        tolerationSeconds:
+                          description: |-
+                            TolerationSeconds represents the period of time the toleration (which must be
+                            of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                            it is not set, which means tolerate the taint forever (do not evict). Zero and
+                            negative values will be treated as 0 (evict immediately) by the system.
+                          format: int64
+                          type: integer
+                        value:
+                          description: |-
+                            Value is the taint value the toleration matches to.
+                            If the operator is Exists, the value should be empty, otherwise just a regular string.
+                          type: string
+                      type: object
+                    type: array
                 required:
                 - image
                 - resources
@@ -807,6 +1070,9 @@ spec:
               model:
                 description: Model configuration
                 properties:
+                  chatTemplate:
+                    description: Chat template
+                    type: string
                   dtype:
                     description: Data type
                     type: string
@@ -816,23 +1082,17 @@ spec:
                   enableTool:
                     description: Enable tool
                     type: boolean
-                  hfTokenName:
-                    default: token
-                    type: string
                   hfTokenSecret:
                     description: HuggingFace token secret
                     properties:
-                      name:
-                        default: ""
-                        description: |-
-                          Name of the referent.
-                          This field is effectively required, but due to backwards compatibility is
-                          allowed to be empty. Instances of this type with an empty value here are
-                          almost certainly wrong.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      hfTokenKeyName:
+                        default: token
+                        description: HuggingFace token key name in the secret
+                        type: string
+                      hfTokenSecretName:
+                        description: HuggingFace token secret name
                         type: string
                     type: object
-                    x-kubernetes-map-type: atomic
                   maxModelLen:
                     description: Maximum model length
                     format: int32
@@ -871,6 +1131,55 @@ spec:
                     description: MountPath is the path where the volume will be mounted
                       in the container
                     type: string
+                  selector:
+                    description: |-
+                      Selector selects a statically provisioned PersistentVolume. When set with
+                      an empty StorageClassName, the generated PVC explicitly uses no storage class.
+                      PVC selectors are immutable after the claim is created.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
                   size:
                     default: 10Gi
                     description: Size is the size of the persistent volume claim
@@ -888,6 +1197,13 @@ spec:
               vllmConfig:
                 description: vLLM server configuration
                 properties:
+                  command:
+                    description: |-
+                      Command is the command used to start the vLLM server. When omitted,
+                      it defaults to ["/opt/venv/bin/vllm", "serve"].
+                    items:
+                      type: string
+                    type: array
                   enableChunkedPrefill:
                     description: Enable chunked prefill
                     type: boolean
@@ -941,6 +1257,10 @@ spec:
           status:
             description: VLLMRuntimeStatus defines the observed state of VLLMRuntime
             properties:
+              availableReplicas:
+                description: Number of pods that are ready and serving traffic
+                format: int32
+                type: integer
               lastUpdated:
                 description: Last updated timestamp
                 format: date-time
@@ -948,11 +1268,31 @@ spec:
               modelStatus:
                 description: Model status
                 type: string
+              replicas:
+                description: Current replica count (used by scale subresource)
+                format: int32
+                type: integer
+              selector:
+                description: Label selector for pods (used by scale subresource for
+                  HPA AverageValue)
+                type: string
+              unavailableReplicas:
+                description: Number of pods that are not yet available
+                format: int32
+                type: integer
+              updatedReplicas:
+                description: Number of pods running the latest pod template
+                format: int32
+                type: integer
             type: object
         type: object
     served: true
     storage: true
     subresources:
+      scale:
+        labelSelectorPath: .status.selector
+        specReplicasPath: .spec.deploymentConfig.replicas
+        statusReplicasPath: .status.replicas
       status: {}
 ---
 apiVersion: v1
@@ -1157,7 +1497,6 @@ rules:
   resources:
   - configmaps
   - persistentvolumeclaims
-  - secrets
   - serviceaccounts
   - services
   verbs:
@@ -1177,9 +1516,27 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
   - apps
   resources:
   - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - keda.sh
+  resources:
+  - scaledobjects
   verbs:
   - create
   - delete
@@ -1230,6 +1587,7 @@ rules:
   - cacheservers/status
   - loraadapters/status
   - vllmrouters/status
+  - vllmruntimes/scale
   - vllmruntimes/status
   verbs:
   - get
